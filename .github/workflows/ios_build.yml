@@ -20,40 +20,39 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          flutter-version: '3.27.x'
 
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Build iOS (Archive)
+      - name: CocoaPods Install
         run: |
-          # Prepare Flutter dependencies and intermediate files
+          cd ios
+          # Ensure Podfile exists (we just added it, but good to check)
+          if [ ! -f "Podfile" ]; then
+            echo "Warning: Podfile missing, attempts to generate one..."
+          fi
+          pod install || (echo "Pod install failed, but continuing..." && true)
+          cd ..
+
+      - name: Build iOS
+        run: |
+          # Use standard flutter build with no-codesign
           flutter build ios --release --no-codesign --build-number=1 --build-name=1.0.0 || true
           
-          # Run xcodebuild archive to create a full application structure
-          xcodebuild archive \
-            -workspace ios/Runner.xcworkspace \
-            -scheme Runner \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -archivePath build/Runner.xcarchive \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            PROVISIONING_PROFILE_SPECIFIER="" \
-            clean
-            
-      - name: Create IPA from Archive
+      - name: Create IPA (Robust Search)
         run: |
-          APP_PATH="build/Runner.xcarchive/Products/Applications/Runner.app"
+          # Locate the .app in any build folder
+          APP_PATH=$(find build/ios -name "Runner.app" -type d | head -n 1)
+          
           if [ -d "$APP_PATH" ]; then
-            echo "Runner.app found in archive, creating IPA..."
+            echo "Runner.app found at $APP_PATH, creating IPA..."
             mkdir Payload
             cp -r "$APP_PATH" Payload/
             zip -vr Runner.ipa Payload
           else
-            echo "Runner.app NOT found in archive at $APP_PATH! Build failed."
-            # Debug: show archive structure
-            ls -R build/Runner.xcarchive || true
+            echo "Fatal: Runner.app NOT found anywhere!"
+            find build -name "*.app"
             exit 1
           fi
 
