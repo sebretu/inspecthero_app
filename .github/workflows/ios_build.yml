@@ -26,13 +26,19 @@ jobs:
         run: flutter pub get
 
       - name: Build iOS
-        run: flutter build ios --release --no-codesign --build-number=1 --build-name=1.0.0
+        run: flutter build ios --release --no-codesign --build-number=1 --build-name=1.0.0 || true
 
       - name: Create IPA
         run: |
-          mkdir Payload
-          cp -r build/ios/iphoneos/Runner.app Payload/
-          zip -vr Runner.ipa Payload
+          if [ -d "build/ios/iphoneos/Runner.app" ]; then
+            echo "Runner.app found, creating IPA..."
+            mkdir Payload
+            cp -r build/ios/iphoneos/Runner.app Payload/
+            zip -vr Runner.ipa Payload
+          else
+            echo "Runner.app NOT found! Build failed."
+            exit 1
+          fi
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
