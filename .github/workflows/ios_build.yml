@@ -26,7 +26,7 @@ jobs:
         run: flutter pub get
 
       - name: Build iOS
-        run: flutter build ios --release --no-codesign --build-number=1 --build-name=1.0.0 --xcargs="CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO"
+        run: flutter build ios --release --no-codesign --build-number=1 --build-name=1.0.0
 
       - name: Create IPA
         run: |
