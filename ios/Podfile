@@ -11,20 +11,33 @@ project 'Runner', {
   'Profile' => :profile,
 }
 
-def flutter_root
-  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
-  unless File.exist?(generated_xcode_build_settings_path)
-    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get has been executed"
-  end
+# Dynamic help for Flutter Root and Podhelper
+def find_podhelper
+  local_helper = File.expand_path(File.join('..', 'Flutter', 'podhelper.rb'), __FILE__)
+  return local_helper if File.exist?(local_helper)
 
-  File.foreach(generated_xcode_build_settings_path) do |line|
-    matches = line.match(/\AFLUTTER_ROOT=(.*)\z/)
-    return matches[1].strip if matches
+  # Fallback for CI environments where it might not be generated yet
+  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+  if File.exist?(generated_xcode_build_settings_path)
+    File.foreach(generated_xcode_build_settings_path) do |line|
+      matches = line.match(/\AFLUTTER_ROOT=(.*)\z/)
+      if matches
+        sdk_helper = File.join(matches[1].strip, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
+        return sdk_helper if File.exist?(sdk_helper)
+      end
+    end
   end
-  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig and regnerating it with flutter pub get"
+  
+  # Last resort: try environment variable
+  if ENV['FLUTTER_ROOT']
+    sdk_helper = File.join(ENV['FLUTTER_ROOT'], 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
+    return sdk_helper if File.exist?(sdk_helper)
+  end
+  
+  local_helper # Return local path and let it fail if still not found
 end
 
-require File.expand_path(File.join('..', 'Flutter', 'podhelper'), __FILE__)
+require find_podhelper
 
 target 'Runner' do
   use_frameworks!
