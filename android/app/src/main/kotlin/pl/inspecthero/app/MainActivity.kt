@@ -1,4 +1,4 @@
-package com.example.inspecthero_app
+package pl.inspecthero.app
 
 import io.flutter.embedding.android.FlutterActivity
 
