@@ -64,7 +64,6 @@ class _WebViewScreenState extends State<WebViewScreen> {
     javaScriptCanOpenWindowsAutomatically: true,
     cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
     databaseEnabled: true,
-    domStorageEnabled: true,
     useOnDownloadStart: true,
     useShouldOverrideUrlLoading: true,
   );
