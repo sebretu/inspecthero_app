@@ -24,26 +24,36 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Build iOS (Standard Flutter)
+      - name: Build iOS (Archive)
         run: |
+          # Prepare Flutter dependencies and intermediate files
           flutter build ios --release --no-codesign --build-number=1 --build-name=1.0.0 || true
           
-      - name: Create IPA (Robust Search)
+          # Run xcodebuild archive to create a full application structure
+          xcodebuild archive \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/Runner.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            clean
+            
+      - name: Create IPA from Archive
         run: |
-          # Use find to locate the .app wherever it might be
-          APP_PATH=$(find build/ios -name "Runner.app" -type d | grep "Release-iphoneos" | head -n 1)
-          if [ -z "$APP_PATH" ]; then
-            APP_PATH=$(find build/ios -name "Runner.app" -type d | head -n 1)
-          fi
-          
+          APP_PATH="build/Runner.xcarchive/Products/Applications/Runner.app"
           if [ -d "$APP_PATH" ]; then
-            echo "Runner.app found at $APP_PATH, creating IPA..."
+            echo "Runner.app found in archive, creating IPA..."
             mkdir Payload
             cp -r "$APP_PATH" Payload/
             zip -vr Runner.ipa Payload
           else
-            echo "Runner.app NOT found anywhere in build/ios/"
-            find build -name "*.app"
+            echo "Runner.app NOT found in archive at $APP_PATH! Build failed."
+            # Debug: show archive structure
+            ls -R build/Runner.xcarchive || true
             exit 1
           fi
 
