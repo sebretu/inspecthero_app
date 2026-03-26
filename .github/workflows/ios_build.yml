@@ -23,22 +23,23 @@ jobs:
           flutter-version: '3.27.x'
 
       - name: Get dependencies
-        run: flutter pub get
+        run: |
+          flutter pub get
+          ls -la
+          ls -la ios/
 
       - name: CocoaPods Install
         run: |
           cd ios
-          # Ensure Podfile exists (we just added it, but good to check)
-          if [ ! -f "Podfile" ]; then
-            echo "Warning: Podfile missing, attempts to generate one..."
-          fi
-          pod install || (echo "Pod install failed, but continuing..." && true)
+          pod install
+          ls -la
           cd ..
 
       - name: Build iOS
         run: |
-          # Use standard flutter build with no-codesign
-          flutter build ios --release --no-codesign --build-number=1 --build-name=1.0.0 || true
+          # Remove || true to see the actual error
+          flutter build ios --release --no-codesign --build-number=1 --build-name=1.0.0
+          ls -R build/ios || echo "Build directory not found!"
           
       - name: Create IPA (Robust Search)
         run: |
