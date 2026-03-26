@@ -25,18 +25,33 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Build iOS
-        run: flutter build ios --release --no-codesign --build-number=1 --build-name=1.0.0 || true
-
+      - name: Build iOS (Direct Xcode)
+        run: |
+          # Prepare Flutter dependencies and intermediate files
+          flutter build ios --release --no-codesign --build-number=1 --build-name=1.0.0 || true
+          
+          # Run xcodebuild directly to bypass Flutter's signing checks
+          xcodebuild -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build_xcode \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            clean build
+            
       - name: Create IPA
         run: |
-          if [ -d "build/ios/iphoneos/Runner.app" ]; then
-            echo "Runner.app found, creating IPA..."
+          APP_PATH="build_xcode/Build/Products/Release-iphoneos/Runner.app"
+          if [ -d "$APP_PATH" ]; then
+            echo "Runner.app found at $APP_PATH, creating IPA..."
             mkdir Payload
-            cp -r build/ios/iphoneos/Runner.app Payload/
+            cp -r "$APP_PATH" Payload/
             zip -vr Runner.ipa Payload
           else
-            echo "Runner.app NOT found! Build failed."
+            echo "Runner.app NOT found at $APP_PATH! Build failed."
+            # List files to debug
+            find build_xcode -name "*.app"
             exit 1
           fi
 
