@@ -3,6 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dio/dio.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'dart:async';
+import 'package:path/path.dart' as p;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -56,7 +62,14 @@ class _WebViewScreenState extends State<WebViewScreen> {
     domStorageEnabled: true,
     allowFileAccess: true,
     javaScriptCanOpenWindowsAutomatically: true,
+    cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
+    databaseEnabled: true,
+    domStorageEnabled: true,
+    useOnDownloadStart: true,
+    useShouldOverrideUrlLoading: true,
   );
+
+  StreamSubscription<List<ConnectivityResult>>? connectivitySubscription;
 
   PullToRefreshController? pullToRefreshController;
   String url = "https://inspecthero.pl/";
@@ -79,6 +92,19 @@ class _WebViewScreenState extends State<WebViewScreen> {
         }
       },
     );
+
+    connectivitySubscription = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
+      if (results.contains(ConnectivityResult.mobile) || results.contains(ConnectivityResult.wifi)) {
+        // Regained internet - trigger sync in WebView
+        webViewController?.evaluateJavascript(source: "window.dispatchEvent(new CustomEvent('sync-requested'));");
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    connectivitySubscription?.cancel();
+    super.dispose();
   }
 
   @override
@@ -113,6 +139,20 @@ class _WebViewScreenState extends State<WebViewScreen> {
                 this.url = url.toString();
               });
             },
+            shouldOverrideUrlLoading: (controller, navigationAction) async {
+              final url = navigationAction.request.url;
+              if (url != null && 
+                  (url.path.endsWith('.pdf') || 
+                   url.queryParameters['download'] == 'true' ||
+                   url.path.contains('/reports/'))) {
+                // If it's a PDF or a direct download link, trigger download
+                print("Intercepted PDF/Download: $url");
+                // controller.onDownloadStartRequest will be called if we don't handle it here
+                // but we can explicitly trigger it
+                return NavigationActionPolicy.ALLOW; // Let onDownloadStartRequest handle it
+              }
+              return NavigationActionPolicy.ALLOW;
+            },
             onPermissionRequest: (controller, request) async {
               return PermissionResponse(
                   resources: request.resources,
@@ -123,6 +163,56 @@ class _WebViewScreenState extends State<WebViewScreen> {
               setState(() {
                 this.url = url.toString();
               });
+            },
+            onDownloadStartRequest: (controller, downloadStartRequest) async {
+              print("Download started: ${downloadStartRequest.url}");
+              
+              // Show notification
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Pobieranie pliku...")),
+                );
+              }
+
+              try {
+                final dio = Dio();
+                final tempDir = await getTemporaryDirectory();
+                
+                // Extract filename from URL or use a default
+                String fileName = downloadStartRequest.suggestedFilename ?? 
+                    p.basename(downloadStartRequest.url.path);
+                
+                if (fileName.isEmpty) {
+                  fileName = "report_${DateTime.now().millisecondsSinceEpoch}.pdf";
+                }
+
+                final savePath = p.join(tempDir.path, fileName);
+                
+                await dio.download(
+                  downloadStartRequest.url.toString(),
+                  savePath,
+                  onReceiveProgress: (received, total) {
+                    if (total != -1) {
+                      print((received / total * 100).toStringAsFixed(0) + "%");
+                    }
+                  },
+                );
+
+                if (mounted) {
+                  // Trigger iOS Share Sheet which includes "Save to Files"
+                  await Share.shareXFiles(
+                    [XFile(savePath)],
+                    subject: fileName,
+                  );
+                }
+              } catch (e) {
+                print("Download error: $e");
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Błąd pobierania: $e")),
+                  );
+                }
+              }
             },
           ),
         ),
