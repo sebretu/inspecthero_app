@@ -25,8 +25,12 @@ jobs:
       - name: Get dependencies
         run: |
           flutter pub get
-          ls -la
-          ls -la ios/
+          # Manually copy Flutter helper scripts from SDK to project
+          mkdir -p ios/Flutter
+          cp "$FLUTTER_ROOT/packages/flutter_tools/bin/podhelper.rb" ios/Flutter/podhelper.rb
+          # Ensure Generated.xcconfig is present (sometimes it's missed)
+          flutter build ios --config-only || true
+          ls -la ios/Flutter/
 
       - name: CocoaPods Install
         run: |

@@ -11,33 +11,8 @@ project 'Runner', {
   'Profile' => :profile,
 }
 
-# Dynamic help for Flutter Root and Podhelper
-def find_podhelper
-  local_helper = File.expand_path(File.join('..', 'Flutter', 'podhelper.rb'), __FILE__)
-  return local_helper if File.exist?(local_helper)
-
-  # Fallback for CI environments where it might not be generated yet
-  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
-  if File.exist?(generated_xcode_build_settings_path)
-    File.foreach(generated_xcode_build_settings_path) do |line|
-      matches = line.match(/\AFLUTTER_ROOT=(.*)\z/)
-      if matches
-        sdk_helper = File.join(matches[1].strip, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
-        return sdk_helper if File.exist?(sdk_helper)
-      end
-    end
-  end
-  
-  # Last resort: try environment variable
-  if ENV['FLUTTER_ROOT']
-    sdk_helper = File.join(ENV['FLUTTER_ROOT'], 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
-    return sdk_helper if File.exist?(sdk_helper)
-  end
-  
-  local_helper # Return local path and let it fail if still not found
-end
-
-require find_podhelper
+# Dynamic requirement of Flutter podhelper
+require_relative 'Flutter/podhelper'
 
 target 'Runner' do
   use_frameworks!
