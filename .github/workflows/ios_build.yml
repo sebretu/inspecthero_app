@@ -22,28 +22,41 @@ jobs:
           channel: 'stable'
           flutter-version: '3.27.x'
 
-      - name: Get dependencies
+      - name: Regenerate iOS Project
         run: |
-          flutter pub get
-          # Manually copy Flutter helper scripts from SDK to project
-          mkdir -p ios/Flutter
-          cp "$FLUTTER_ROOT/packages/flutter_tools/bin/podhelper.rb" ios/Flutter/podhelper.rb
-          # Ensure Generated.xcconfig is present (sometimes it's missed)
-          flutter build ios --config-only || true
-          ls -la ios/Flutter/
+          # Backup critical files
+          mkdir -p ios_backup
+          cp ios/Runner/Info.plist ios_backup/Info.plist || true
+          cp ios/Runner/AppDelegate.swift ios_backup/AppDelegate.swift || true
+          cp ios/Runner/SceneDelegate.swift ios_backup/SceneDelegate.swift || true
+          
+          # Remove problematic ios folder
+          rm -rf ios
+          
+          # Regenerate ios folder with correct structure for this Flutter version
+          flutter create --platforms ios .
+          
+          # Restore critical files
+          cp ios_backup/Info.plist ios/Runner/Info.plist || true
+          cp ios_backup/AppDelegate.swift ios/Runner/AppDelegate.swift || true
+          cp ios_backup/SceneDelegate.swift ios/Runner/SceneDelegate.swift || true
+          
+          # Inject no-codesign fix into the NEW Podfile
+          sed -i '' 's/flutter_additional_ios_build_settings(target)/flutter_additional_ios_build_settings(target); target.build_configurations.each { |config| config.build_settings["CODE_SIGNING_ALLOWED"] = "NO"; config.build_settings["CODE_SIGNING_REQUIRED"] = "NO" }/g' ios/Podfile
+
+      - name: Get dependencies
+        run: flutter pub get
 
       - name: CocoaPods Install
         run: |
           cd ios
           pod install
-          ls -la
           cd ..
 
       - name: Build iOS
         run: |
-          # Remove || true to see the actual error
+          # Use standard flutter build with no-codesign
           flutter build ios --release --no-codesign --build-number=1 --build-name=1.0.0
-          ls -R build/ios || echo "Build directory not found!"
           
       - name: Create IPA (Robust Search)
         run: |
