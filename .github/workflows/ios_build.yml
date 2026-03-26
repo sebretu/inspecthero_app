@@ -20,38 +20,31 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.41.x'
+          flutter-version: 'latest'
 
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Build iOS (Direct Xcode)
+      - name: Build iOS (Standard Flutter)
         run: |
-          # Prepare Flutter dependencies and intermediate files
           flutter build ios --release --no-codesign --build-number=1 --build-name=1.0.0 || true
           
-          # Run xcodebuild directly to bypass Flutter's signing checks
-          xcodebuild -workspace ios/Runner.xcworkspace \
-            -scheme Runner \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath build_xcode \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            clean build
-            
-      - name: Create IPA
+      - name: Create IPA (Robust Search)
         run: |
-          APP_PATH="build_xcode/Build/Products/Release-iphoneos/Runner.app"
+          # Use find to locate the .app wherever it might be
+          APP_PATH=$(find build/ios -name "Runner.app" -type d | grep "Release-iphoneos" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find build/ios -name "Runner.app" -type d | head -n 1)
+          fi
+          
           if [ -d "$APP_PATH" ]; then
             echo "Runner.app found at $APP_PATH, creating IPA..."
             mkdir Payload
             cp -r "$APP_PATH" Payload/
             zip -vr Runner.ipa Payload
           else
-            echo "Runner.app NOT found at $APP_PATH! Build failed."
-            # List files to debug
-            find build_xcode -name "*.app"
+            echo "Runner.app NOT found anywhere in build/ios/"
+            find build -name "*.app"
             exit 1
           fi
 
