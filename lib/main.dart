@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'dart:collection';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -62,6 +63,8 @@ class _WebViewScreenState extends State<WebViewScreen> {
     javaScriptEnabled: true,
     domStorageEnabled: true,
     allowFileAccess: true,
+    allowFileAccessFromFileURLs: true,
+    allowUniversalAccessFromFileURLs: true,
     javaScriptCanOpenWindowsAutomatically: true,
     cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
     databaseEnabled: true,
@@ -130,7 +133,22 @@ class _WebViewScreenState extends State<WebViewScreen> {
             initialUrlRequest:
                 URLRequest(url: WebUri("https://inspecthero.pl/")),
             initialSettings: settings,
-            pullToRefreshController: pullToRefreshController,
+            initialUserScripts: UnmodifiableListView<UserScript>([
+              UserScript(
+                source: """
+                  (function() {
+                    const originalCreateObjectURL = URL.createObjectURL;
+                    URL.createObjectURL = function(blob) {
+                      const url = originalCreateObjectURL(blob);
+                      if (!window._blobs) window._blobs = {};
+                      window._blobs[url] = blob;
+                      return url;
+                    };
+                  })();
+                """,
+                injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START
+              ),
+            ]),
             onWebViewCreated: (controller) {
               webViewController = controller;
               // Register JavaScript Handler for blobs once
@@ -192,42 +210,36 @@ class _WebViewScreenState extends State<WebViewScreen> {
               }
 
               if (urlString.startsWith("blob:")) {
-                // Use XHR to get blob data and send it back via the handler with error reporting
+                // Use the intercepted blob from our global map instead of fetch/XHR
                 await controller.evaluateJavascript(source: """
                   (function() {
                     try {
-                      var xhr = new XMLHttpRequest();
-                      xhr.open('GET', '$urlString', true);
-                      xhr.responseType = 'blob';
-                      xhr.onload = function(e) {
-                        if (this.status == 200) {
-                          var blob = this.response;
-                          var reader = new FileReader();
-                          reader.readAsDataURL(blob);
-                          reader.onloadend = function() {
-                            try {
-                              var base64data = reader.result.split(',')[1];
-                              if (window.flutter_inappwebview) {
-                                window.flutter_inappwebview.callHandler('onBlobDataReceived', base64data, '${downloadStartRequest.suggestedFilename ?? "raport.pdf"}');
-                              } else {
-                                location.href = 'download-error://bridge-missing';
-                              }
-                            } catch (err) {
-                              window.flutter_inappwebview.callHandler('onBlobDataReceived', 'ERROR: ' + err.message, '');
-                            }
-                          }
-                        } else {
-                           window.flutter_inappwebview.callHandler('onBlobDataReceived', 'ERROR: Status ' + this.status, '');
-                        }
-                      };
-                      xhr.onerror = function() {
-                         window.flutter_inappwebview.callHandler('onBlobDataReceived', 'ERROR: XHR Failed', '');
-                      };
-                      xhr.send();
+                      var blob = (window._blobs && window._blobs['$urlString']) ? window._blobs['$urlString'] : null;
+                      if (!blob) {
+                        // Fallback to fetch if not in our map (unlikely but possible)
+                        var xhr = new XMLHttpRequest();
+                        xhr.open('GET', '$urlString', true);
+                        xhr.responseType = 'blob';
+                        xhr.onload = function() {
+                          if (this.status == 200) { processBlob(this.response); }
+                          else { window.flutter_inappwebview.callHandler('onBlobDataReceived', 'ERROR: Blob not found and fetch failed', ''); }
+                        };
+                        xhr.onerror = function() { window.flutter_inappwebview.callHandler('onBlobDataReceived', 'ERROR: XHR Failed', ''); };
+                        xhr.send();
+                      } else {
+                        processBlob(blob);
+                      }
+
+                      function processBlob(b) {
+                        var reader = new FileReader();
+                        reader.readAsDataURL(b);
+                        reader.onloadend = function() {
+                          var base64data = reader.result.split(',')[1];
+                          window.flutter_inappwebview.callHandler('onBlobDataReceived', base64data, '${downloadStartRequest.suggestedFilename ?? "raport.pdf"}');
+                        };
+                      }
                     } catch (err) {
-                       if (window.flutter_inappwebview) {
-                         window.flutter_inappwebview.callHandler('onBlobDataReceived', 'ERROR: Global ' + err.message, '');
-                       }
+                      window.flutter_inappwebview.callHandler('onBlobDataReceived', 'ERROR: ' + err.message, '');
                     }
                   })();
                 """);
