@@ -28,7 +28,6 @@ jobs:
           mkdir -p ios_backup
           cp ios/Runner/Info.plist ios_backup/Info.plist || true
           cp ios/Runner/AppDelegate.swift ios_backup/AppDelegate.swift || true
-          cp ios/Runner/SceneDelegate.swift ios_backup/SceneDelegate.swift || true
           
           # Remove problematic ios folder
           rm -rf ios
@@ -36,11 +35,18 @@ jobs:
           # Regenerate ios folder with correct structure
           flutter create --platforms ios --org pl.inspecthero .
           
-          # Restore source files
+          # Restore critical source files (Except SceneDelegate which causes crashes)
           cp ios_backup/Info.plist ios/Runner/Info.plist || true
           cp ios_backup/AppDelegate.swift ios/Runner/AppDelegate.swift || true
-          cp ios_backup/SceneDelegate.swift ios/Runner/SceneDelegate.swift || true
-          cp ios_backup/Podfile ios/Podfile || true
+          
+          # Remove Scene support from Info.plist (Strongly recommended for simple apps to avoid crashes)
+          # We use a Ruby script to safely remove the UIApplicationSceneManifest key and its dict
+          ruby -e "
+            require 'plist'
+            plist = Plist.parse_xml('ios/Runner/Info.plist')
+            plist.delete('UIApplicationSceneManifest')
+            File.open('ios/Runner/Info.plist', 'w') { |f| f.write(plist.to_plist) }
+          " || sed -i '' '/UIApplicationSceneManifest/,/<\/dict>/d' ios/Runner/Info.plist
           
           # Force the original Bundle Identifier in the newly generated project
           sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = .*/PRODUCT_BUNDLE_IDENTIFIER = pl.inspecthero.app;/g' ios/Runner.xcodeproj/project.pbxproj
