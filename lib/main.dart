@@ -133,6 +133,13 @@ class _WebViewScreenState extends State<WebViewScreen> {
             pullToRefreshController: pullToRefreshController,
             onWebViewCreated: (controller) {
               webViewController = controller;
+              // Register JavaScript Handler for blobs once
+              controller.addJavaScriptHandler(handlerName: "onBlobDataReceived", callback: (args) async {
+                final String base64Data = args[0];
+                final String fileName = args[1];
+                print("Blob data received via handler! Length: ${base64Data.length}");
+                await _saveAndShareFile(base64Data, fileName);
+              });
             },
             onLoadStart: (controller, url) {
               setState(() {
@@ -162,13 +169,6 @@ class _WebViewScreenState extends State<WebViewScreen> {
               pullToRefreshController?.endRefreshing();
               setState(() {
                 this.url = url.toString();
-              });
-
-              // Register JavaScript Handler for blobs
-              controller.addJavaScriptHandler(handlerName: "onBlobDataReceived", callback: (args) async {
-                final String base64Data = args[0];
-                final String fileName = args[1];
-                await _saveAndShareFile(base64Data, fileName);
               });
             },
             onDownloadStartRequest: (controller, downloadStartRequest) async {
@@ -227,20 +227,39 @@ class _WebViewScreenState extends State<WebViewScreen> {
   }
   Future<void> _saveAndShareFile(String base64Data, String fileName) async {
     try {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Przetwarzanie danych...")),
+        );
+      }
+      
       final tempDir = await getTemporaryDirectory();
       if (fileName == "null" || fileName.isEmpty) {
         fileName = "report_${DateTime.now().millisecondsSinceEpoch}.pdf";
       }
       final savePath = p.join(tempDir.path, fileName);
-      final bytes = base64Decode(base64Data);
+      
+      // Sanitise base64 data (strip whitespace)
+      final cleanBase64 = base64Data.replaceAll(RegExp(r'\s+'), '');
+      final bytes = base64Decode(cleanBase64);
+      
       final file = File(savePath);
       await file.writeAsBytes(bytes);
+      print("File saved successfully to $savePath");
       
       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Plik gotowy! Udostępnianie...")),
+        );
         await Share.shareXFiles([XFile(savePath)], subject: fileName);
       }
     } catch (e) {
       print("Error saving/sharing file: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Błąd zapisu pliku: $e")),
+        );
+      }
     }
   }
 }
