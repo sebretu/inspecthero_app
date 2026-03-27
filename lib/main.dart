@@ -144,6 +144,14 @@ class _WebViewScreenState extends State<WebViewScreen> {
                       window._blobs[url] = blob;
                       return url;
                     };
+                    
+                    // Intercept clicks to catch 'download' attribute
+                    window.addEventListener('click', function(e) {
+                      const target = e.target.closest('a');
+                      if (target && target.getAttribute('download')) {
+                        window._lastDownloadAttribute = target.getAttribute('download');
+                      }
+                    }, true);
                   })();
                 """,
                 injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START
@@ -235,11 +243,13 @@ class _WebViewScreenState extends State<WebViewScreen> {
                         reader.readAsDataURL(b);
                         reader.onloadend = function() {
                           var base64data = reader.result.split(',')[1];
-                          var fileName = '${downloadStartRequest.suggestedFilename}';
+                          var fileName = window._lastDownloadAttribute || '${downloadStartRequest.suggestedFilename}';
                           if (fileName === 'null' || fileName === 'Unknown' || fileName === '') {
                              fileName = 'raport.pdf';
                           }
                           window.flutter_inappwebview.callHandler('onBlobDataReceived', base64data, fileName);
+                          // Clear the attribute after use
+                          window._lastDownloadAttribute = null;
                         };
                       }
                     } catch (err) {
