@@ -163,6 +163,13 @@ class _WebViewScreenState extends State<WebViewScreen> {
               setState(() {
                 this.url = url.toString();
               });
+
+              // Register JavaScript Handler for blobs
+              controller.addJavaScriptHandler(handlerName: "onBlobDataReceived", callback: (args) async {
+                final String base64Data = args[0];
+                final String fileName = args[1];
+                await _saveAndShareFile(base64Data, fileName);
+              });
             },
             onDownloadStartRequest: (controller, downloadStartRequest) async {
               String urlString = downloadStartRequest.url.toString();
@@ -174,65 +181,42 @@ class _WebViewScreenState extends State<WebViewScreen> {
                 );
               }
 
-              try {
-                final tempDir = await getTemporaryDirectory();
-                String fileName = downloadStartRequest.suggestedFilename ?? 
-                    p.basename(downloadStartRequest.url.path);
-                
-                if (fileName.isEmpty || fileName == "blob") {
-                  fileName = "report_${DateTime.now().millisecondsSinceEpoch}.pdf";
-                }
-                final savePath = p.join(tempDir.path, fileName);
-
-                if (urlString.startsWith("blob:")) {
-                  // Handle Blob by converting it to Base64 in JavaScript
-                  print("Found blob URL, converting...");
-                  final base64Data = await controller.evaluateJavascript(source: """
-                    (async function() {
-                      try {
-                        const response = await fetch('$urlString');
-                        const blob = await response.blob();
-                        return new Promise((resolve, reject) => {
-                          const reader = new FileReader();
-                          reader.onloadend = () => resolve(reader.result.split(',')[1]);
-                          reader.onerror = reject;
-                          reader.readAsDataURL(blob);
-                        });
-                      } catch (e) {
-                        return null;
+              if (urlString.startsWith("blob:")) {
+                // Use XHR to get blob data and send it back via the handler
+                await controller.evaluateJavascript(source: """
+                  (function() {
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('GET', '$urlString', true);
+                    xhr.responseType = 'blob';
+                    xhr.onload = function(e) {
+                      if (this.status == 200) {
+                        var blob = this.response;
+                        var reader = new FileReader();
+                        reader.readAsDataURL(blob);
+                        reader.onloadend = function() {
+                          var base64data = reader.result.split(',')[1];
+                          window.flutter_inappwebview.callHandler('onBlobDataReceived', base64data, '${downloadStartRequest.suggestedFilename ?? "raport.pdf"}');
+                        }
                       }
-                    })();
-                  """);
-
-                  if (base64Data == null) {
-                    throw Exception("Błąd konwersji blob na base64");
+                    };
+                    xhr.send();
+                  })();
+                """);
+              } else {
+                try {
+                  final tempDir = await getTemporaryDirectory();
+                  String fileName = downloadStartRequest.suggestedFilename ?? 
+                      p.basename(downloadStartRequest.url.path);
+                  if (fileName.isEmpty) {
+                    fileName = "report_${DateTime.now().millisecondsSinceEpoch}.pdf";
                   }
-
-                  final bytes = base64Decode(base64Data);
-                  final file = File(savePath);
-                  await file.writeAsBytes(bytes);
-                  print("Blob saved to $savePath");
-                } else {
-                  // Handle standard URL with Dio
+                  final savePath = p.join(tempDir.path, fileName);
+                  
                   final dio = Dio();
-                  await dio.download(
-                    urlString,
-                    savePath,
-                  );
-                }
-
-                if (mounted) {
-                  await Share.shareXFiles(
-                    [XFile(savePath)],
-                    subject: fileName,
-                  );
-                }
-              } catch (e) {
-                print("Download error: $e");
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("Błąd pobierania: $e")),
-                  );
+                  await dio.download(urlString, savePath);
+                  await Share.shareXFiles([XFile(savePath)], subject: fileName);
+                } catch (e) {
+                  print("Dio download error: $e");
                 }
               }
             },
@@ -240,5 +224,23 @@ class _WebViewScreenState extends State<WebViewScreen> {
         ),
       ),
     );
+  }
+  Future<void> _saveAndShareFile(String base64Data, String fileName) async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      if (fileName == "null" || fileName.isEmpty) {
+        fileName = "report_${DateTime.now().millisecondsSinceEpoch}.pdf";
+      }
+      final savePath = p.join(tempDir.path, fileName);
+      final bytes = base64Decode(base64Data);
+      final file = File(savePath);
+      await file.writeAsBytes(bytes);
+      
+      if (mounted) {
+        await Share.shareXFiles([XFile(savePath)], subject: fileName);
+      }
+    } catch (e) {
+      print("Error saving/sharing file: $e");
+    }
   }
 }
