@@ -40,6 +40,10 @@ jobs:
           cp ios_backup/Info.plist ios/Runner/Info.plist || true
           cp ios_backup/AppDelegate.swift ios/Runner/AppDelegate.swift || true
           cp ios_backup/SceneDelegate.swift ios/Runner/SceneDelegate.swift || true
+          cp ios_backup/Podfile ios/Podfile || true
+          
+          # Force the original Bundle Identifier in the newly generated project
+          sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = .*/PRODUCT_BUNDLE_IDENTIFIER = pl.inspecthero.app;/g' ios/Runner.xcodeproj/project.pbxproj
           
           # Manually ensure podhelper is there (backup plan)
           mkdir -p ios/Flutter
