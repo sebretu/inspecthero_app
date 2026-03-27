@@ -135,10 +135,20 @@ class _WebViewScreenState extends State<WebViewScreen> {
               webViewController = controller;
               // Register JavaScript Handler for blobs once
               controller.addJavaScriptHandler(handlerName: "onBlobDataReceived", callback: (args) async {
-                final String base64Data = args[0];
+                final String result = args[0];
                 final String fileName = args[1];
-                print("Blob data received via handler! Length: ${base64Data.length}");
-                await _saveAndShareFile(base64Data, fileName);
+                
+                if (result.startsWith("ERROR:")) {
+                  print("JS Download Error: $result");
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text("Błąd wewnątrz WebView: $result"), backgroundColor: Colors.red),
+                    );
+                  }
+                } else {
+                  print("Blob data received via handler! Length: ${result.length}");
+                  await _saveAndShareFile(result, fileName);
+                }
               });
             },
             onLoadStart: (controller, url) {
@@ -182,24 +192,43 @@ class _WebViewScreenState extends State<WebViewScreen> {
               }
 
               if (urlString.startsWith("blob:")) {
-                // Use XHR to get blob data and send it back via the handler
+                // Use XHR to get blob data and send it back via the handler with error reporting
                 await controller.evaluateJavascript(source: """
                   (function() {
-                    var xhr = new XMLHttpRequest();
-                    xhr.open('GET', '$urlString', true);
-                    xhr.responseType = 'blob';
-                    xhr.onload = function(e) {
-                      if (this.status == 200) {
-                        var blob = this.response;
-                        var reader = new FileReader();
-                        reader.readAsDataURL(blob);
-                        reader.onloadend = function() {
-                          var base64data = reader.result.split(',')[1];
-                          window.flutter_inappwebview.callHandler('onBlobDataReceived', base64data, '${downloadStartRequest.suggestedFilename ?? "raport.pdf"}');
+                    try {
+                      var xhr = new XMLHttpRequest();
+                      xhr.open('GET', '$urlString', true);
+                      xhr.responseType = 'blob';
+                      xhr.onload = function(e) {
+                        if (this.status == 200) {
+                          var blob = this.response;
+                          var reader = new FileReader();
+                          reader.readAsDataURL(blob);
+                          reader.onloadend = function() {
+                            try {
+                              var base64data = reader.result.split(',')[1];
+                              if (window.flutter_inappwebview) {
+                                window.flutter_inappwebview.callHandler('onBlobDataReceived', base64data, '${downloadStartRequest.suggestedFilename ?? "raport.pdf"}');
+                              } else {
+                                location.href = 'download-error://bridge-missing';
+                              }
+                            } catch (err) {
+                              window.flutter_inappwebview.callHandler('onBlobDataReceived', 'ERROR: ' + err.message, '');
+                            }
+                          }
+                        } else {
+                           window.flutter_inappwebview.callHandler('onBlobDataReceived', 'ERROR: Status ' + this.status, '');
                         }
-                      }
-                    };
-                    xhr.send();
+                      };
+                      xhr.onerror = function() {
+                         window.flutter_inappwebview.callHandler('onBlobDataReceived', 'ERROR: XHR Failed', '');
+                      };
+                      xhr.send();
+                    } catch (err) {
+                       if (window.flutter_inappwebview) {
+                         window.flutter_inappwebview.callHandler('onBlobDataReceived', 'ERROR: Global ' + err.message, '');
+                       }
+                    }
                   })();
                 """);
               } else {
