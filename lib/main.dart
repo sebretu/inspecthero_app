@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -164,41 +165,63 @@ class _WebViewScreenState extends State<WebViewScreen> {
               });
             },
             onDownloadStartRequest: (controller, downloadStartRequest) async {
-              print("Download started: ${downloadStartRequest.url}");
+              String urlString = downloadStartRequest.url.toString();
+              print("Download started: $urlString");
               
-              // Show notification
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Pobieranie pliku...")),
+                  const SnackBar(content: Text("Przygotowywanie pliku...")),
                 );
               }
 
               try {
-                final dio = Dio();
                 final tempDir = await getTemporaryDirectory();
-                
-                // Extract filename from URL or use a default
                 String fileName = downloadStartRequest.suggestedFilename ?? 
                     p.basename(downloadStartRequest.url.path);
                 
-                if (fileName.isEmpty) {
+                if (fileName.isEmpty || fileName == "blob") {
                   fileName = "report_${DateTime.now().millisecondsSinceEpoch}.pdf";
                 }
-
                 final savePath = p.join(tempDir.path, fileName);
-                
-                await dio.download(
-                  downloadStartRequest.url.toString(),
-                  savePath,
-                  onReceiveProgress: (received, total) {
-                    if (total != -1) {
-                      print((received / total * 100).toStringAsFixed(0) + "%");
-                    }
-                  },
-                );
+
+                if (urlString.startsWith("blob:")) {
+                  // Handle Blob by converting it to Base64 in JavaScript
+                  print("Found blob URL, converting...");
+                  final base64Data = await controller.evaluateJavascript(source: """
+                    (async function() {
+                      try {
+                        const response = await fetch('$urlString');
+                        const blob = await response.blob();
+                        return new Promise((resolve, reject) => {
+                          const reader = new FileReader();
+                          reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                          reader.onerror = reject;
+                          reader.readAsDataURL(blob);
+                        });
+                      } catch (e) {
+                        return null;
+                      }
+                    })();
+                  """);
+
+                  if (base64Data == null) {
+                    throw Exception("Błąd konwersji blob na base64");
+                  }
+
+                  final bytes = base64Decode(base64Data);
+                  final file = File(savePath);
+                  await file.writeAsBytes(bytes);
+                  print("Blob saved to $savePath");
+                } else {
+                  // Handle standard URL with Dio
+                  final dio = Dio();
+                  await dio.download(
+                    urlString,
+                    savePath,
+                  );
+                }
 
                 if (mounted) {
-                  // Trigger iOS Share Sheet which includes "Save to Files"
                   await Share.shareXFiles(
                     [XFile(savePath)],
                     subject: fileName,
