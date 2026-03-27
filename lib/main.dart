@@ -235,7 +235,11 @@ class _WebViewScreenState extends State<WebViewScreen> {
                         reader.readAsDataURL(b);
                         reader.onloadend = function() {
                           var base64data = reader.result.split(',')[1];
-                          window.flutter_inappwebview.callHandler('onBlobDataReceived', base64data, '${downloadStartRequest.suggestedFilename ?? "raport.pdf"}');
+                          var fileName = '${downloadStartRequest.suggestedFilename}';
+                          if (fileName === 'null' || fileName === 'Unknown' || fileName === '') {
+                             fileName = 'raport.pdf';
+                          }
+                          window.flutter_inappwebview.callHandler('onBlobDataReceived', base64data, fileName);
                         };
                       }
                     } catch (err) {
@@ -255,7 +259,10 @@ class _WebViewScreenState extends State<WebViewScreen> {
                   
                   final dio = Dio();
                   await dio.download(urlString, savePath);
-                  await Share.shareXFiles([XFile(savePath)], subject: fileName);
+                  
+                  // Use our robust sharing logic
+                  final bytes = await File(savePath).readAsBytes();
+                  await _saveAndShareFile(base64Encode(bytes), fileName);
                 } catch (e) {
                   print("Dio download error: $e");
                 }
@@ -275,10 +282,19 @@ class _WebViewScreenState extends State<WebViewScreen> {
       }
       
       final tempDir = await getTemporaryDirectory();
-      if (fileName == "null" || fileName.isEmpty) {
-        fileName = "report_${DateTime.now().millisecondsSinceEpoch}.pdf";
+      
+      // Better filename handling
+      String finalName = fileName;
+      if (finalName == "null" || finalName.isEmpty || finalName == "Unknown" || finalName == "blob") {
+        finalName = "raport_${DateTime.now().millisecondsSinceEpoch}.pdf";
       }
-      final savePath = p.join(tempDir.path, fileName);
+      
+      // Ensure PDF extension
+      if (!finalName.toLowerCase().endsWith(".pdf")) {
+        finalName += ".pdf";
+      }
+      
+      final savePath = p.join(tempDir.path, finalName);
       
       // Sanitise base64 data (strip whitespace)
       final cleanBase64 = base64Data.replaceAll(RegExp(r'\s+'), '');
@@ -290,9 +306,9 @@ class _WebViewScreenState extends State<WebViewScreen> {
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Plik gotowy! Udostępnianie...")),
+          SnackBar(content: Text("Gotowe: $finalName. Udostępnianie...")),
         );
-        await Share.shareXFiles([XFile(savePath)], subject: fileName);
+        await Share.shareXFiles([XFile(savePath)], subject: finalName);
       }
     } catch (e) {
       print("Error saving/sharing file: $e");
